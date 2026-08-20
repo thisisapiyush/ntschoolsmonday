@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($data = Get-Content ingest\\\\data\\\\schools-raw.json | ConvertFrom-Json; \\($data | Where-Object { $_.isGovernment -eq $true -and $_.isPreSchool -eq $false }\\).Count)"
+    ]
+  }
+}
