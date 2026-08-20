@@ -230,3 +230,51 @@ runtime environment, and is the right answer for some agencies. It is worth
 
 knowing both options exist before assuming either.
 
+
+
+\## Source endpoint stability
+
+
+
+The ingest depends on an undocumented, unversioned JSON endpoint behind the
+
+NT Department of Education's school directory SPA at
+
+directory.ntschools.net. The endpoint requires no authentication and returns
+
+the current school list, but it carries no stability guarantee: no API
+
+version header, no published schema, no deprecation policy.
+
+
+
+Zod validation on the response means a shape change — a renamed field, a
+
+changed type, a restructured payload — fails loudly at parse time rather
+
+than silently writing corrupt data into the board. This is the right
+
+first-order defence, but it only converts a silent failure into a noisy one.
+
+
+
+A production deployment would need two things on top of this. First,
+
+monitoring on ingest success: an alert when a scheduled run fails, with
+
+enough context in the error to distinguish a transient network failure from
+
+a breaking schema change. Second, a documented fallback: what the operator
+
+does when the endpoint changes or disappears. Options include falling back
+
+to a manually curated CSV upload, contacting the department for a supported
+
+data feed, or sourcing the school list from ACARA's national dataset
+
+instead. The fallback does not need to be built, but it needs to be written
+
+down so that the first person to encounter the failure has a path forward
+
+rather than a mystery.
+

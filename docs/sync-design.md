@@ -252,3 +252,63 @@ assume it is current, and a stale item presented as live is worse than a
 
 visibly broken one.
 
+
+
+\## Ingest idempotency
+
+
+
+The school ingest applies the same identity-mapping principle described above
+
+for the Jira sync, but against a simpler surface: a read-only source where
+
+only one side can change.
+
+
+
+Each school record carries an `itSchoolCode` that is unique and stable across
+
+runs. The ingest writes this code into the School ID text column on the Sites
+
+board, and uses it as the join key for all subsequent runs.
+
+
+
+The sync is two-pass. First, the ingest reads every existing item from the
+
+board, paginating with cursors, and builds a map from school code to monday
+
+item ID. Second, it walks the transformed source list: if the code already
+
+exists in the map, the item is updated in place; if not, a new item is
+
+created. Entries consumed from the map are removed as they are matched, so
+
+anything remaining at the end is an orphan — a school that exists on the
+
+board but no longer appears in the source.
+
+
+
+Orphans are logged by name in the run summary and never deleted. A school
+
+disappearing from the directory might mean a closure, a reclassification,
+
+or a data error upstream, and in each case the correct response is a human
+
+decision rather than an automated deletion. The ingest surfaces the
+
+information; an operator acts on it.
+
+
+
+This is a degenerate case of the bidirectional mapping the Jira sync will
+
+maintain. The identity principle is the same — stable external key, resolve
+
+before write, never create a duplicate — but without the echo suppression
+
+and conflict handling that bidirectional sync requires, because the NT
+
+directory is not listening for changes in the other direction.
+
