@@ -6,3 +6,7 @@ build/
 *.log
 .mappsrc
 .DS_Store
+.tokens.json
+.oauth-states.json
+code.tar.gz
+security-scan-*.json
