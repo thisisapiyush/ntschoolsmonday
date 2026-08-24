@@ -3,7 +3,11 @@ import { loadConfig } from "./config.js";
 import { FileTokenStore, FileStateStore } from "./tokenStore.js";
 import { MondayTokenStore, MondayStateStore } from "./mondayStore.js";
 import { buildAuthorizeUrl, exchangeCode, fetchCloudId } from "./oauth.js";
-import { createJiraClient, NotAuthorisedError } from "./jiraClient.js";
+import {
+  createJiraClient,
+  NotAuthorisedError,
+  JiraApiError,
+} from "./jiraClient.js";
 import { JiraSearchResponseSchema } from "./types.js";
 import type { TokenStore, StateStore } from "./types.js";
 import { join, dirname } from "node:path";
@@ -102,11 +106,13 @@ async function main() {
 
   app.get("/jira/issues", async (_req, res, next) => {
     try {
-      const jql = encodeURIComponent(
-        `project=${config.JIRA_PROJECT_KEY} ORDER BY created DESC`
-      );
-      const data = await jira.get(
-        `search?jql=${jql}&maxResults=50&fields=summary,status`,
+      const data = await jira.post(
+        "search/jql",
+        {
+          jql: `project=${config.JIRA_PROJECT_KEY} ORDER BY created DESC`,
+          maxResults: 50,
+          fields: ["summary", "status"],
+        },
         JiraSearchResponseSchema
       );
 
@@ -128,6 +134,40 @@ async function main() {
       next(err);
     }
   });
+
+  app.use(
+    (
+      err: Error,
+      req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction
+    ) => {
+      console.error(`[ERROR] ${req.method} ${req.path}: ${err.message}`);
+      if (err.stack) {
+        console.error(err.stack);
+      }
+      if (err instanceof JiraApiError) {
+        console.error(
+          `Upstream Jira response (${err.status}): ${err.body}`
+        );
+      }
+
+      const response: Record<string, unknown> = {
+        error: err.message,
+        path: req.path,
+      };
+      if (err instanceof JiraApiError) {
+        response.upstream = {
+          status: err.status,
+          statusText: err.statusText,
+          body: err.body,
+        };
+      }
+
+      const status = err instanceof JiraApiError ? 502 : 500;
+      res.status(status).json(response);
+    }
+  );
 
   app.listen(config.PORT, () => {
     console.log(`Listening on port ${config.PORT}`);

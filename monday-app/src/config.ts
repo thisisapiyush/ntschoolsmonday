@@ -25,14 +25,18 @@ export class ProcessEnvSource implements ConfigSource {
 
 export class MondaySecretsSource implements ConfigSource {
   readonly name = "monday SecretsManager";
-  private manager: { get(key: string): unknown };
+  private manager: {
+    get(key: string, options?: { invalidate?: boolean }): unknown;
+  };
 
-  constructor(manager: { get(key: string): unknown }) {
+  constructor(manager: {
+    get(key: string, options?: { invalidate?: boolean }): unknown;
+  }) {
     this.manager = manager;
   }
 
   get(key: string): string | undefined {
-    const value = this.manager.get(key);
+    const value = this.manager.get(key, { invalidate: false });
     if (value == null) return undefined;
     return String(value);
   }

@@ -144,7 +144,8 @@ describe("ProcessEnvSource", () => {
 describe("MondaySecretsSource", () => {
   it("wraps SDK get() and returns strings", () => {
     const manager = {
-      get: (key: string) => (key === "FOO" ? "bar" : undefined),
+      get: (key: string, _options?: { invalidate?: boolean }) =>
+        key === "FOO" ? "bar" : undefined,
     };
     const source = new MondaySecretsSource(manager);
     expect(source.get("FOO")).toBe("bar");
@@ -152,19 +153,41 @@ describe("MondaySecretsSource", () => {
   });
 
   it("converts non-string values to strings", () => {
-    const manager = { get: () => 42 as unknown };
+    const manager = {
+      get: (_key: string, _options?: { invalidate?: boolean }) =>
+        42 as unknown,
+    };
     const source = new MondaySecretsSource(manager);
     expect(source.get("NUM")).toBe("42");
   });
 
   it("returns undefined for null", () => {
-    const manager = { get: () => null as unknown };
+    const manager = {
+      get: (_key: string, _options?: { invalidate?: boolean }) =>
+        null as unknown,
+    };
     const source = new MondaySecretsSource(manager);
     expect(source.get("KEY")).toBeUndefined();
   });
 
+  it("passes invalidate: false to the manager", () => {
+    let receivedOptions: { invalidate?: boolean } | undefined;
+    const manager = {
+      get: (_key: string, options?: { invalidate?: boolean }) => {
+        receivedOptions = options;
+        return "value";
+      },
+    };
+    const source = new MondaySecretsSource(manager);
+    source.get("ANY");
+    expect(receivedOptions).toEqual({ invalidate: false });
+  });
+
   it('has name "monday SecretsManager"', () => {
-    const manager = { get: () => undefined as unknown };
+    const manager = {
+      get: (_key: string, _options?: { invalidate?: boolean }) =>
+        undefined as unknown,
+    };
     const source = new MondaySecretsSource(manager);
     expect(source.name).toBe("monday SecretsManager");
   });

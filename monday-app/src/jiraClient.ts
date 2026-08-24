@@ -1,6 +1,10 @@
 import type { ZodSchema } from "zod";
 import type { TokenStore } from "./types.js";
-import { isTokenExpiringSoon, refreshAccessToken, TokenRefreshError } from "./oauth.js";
+import {
+  isTokenExpiringSoon,
+  refreshAccessToken,
+  TokenRefreshError,
+} from "./oauth.js";
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
@@ -10,6 +14,27 @@ export class NotAuthorisedError extends Error {
   constructor() {
     super("Not authorised. Visit /oauth/start to connect Jira.");
     this.name = "NotAuthorisedError";
+  }
+}
+
+export class JiraApiError extends Error {
+  readonly status: number;
+  readonly statusText: string;
+  readonly body: string;
+  readonly path: string;
+
+  constructor(
+    status: number,
+    statusText: string,
+    body: string,
+    path: string
+  ) {
+    super(`Jira API error on ${path}: ${status} ${statusText}`);
+    this.name = "JiraApiError";
+    this.status = status;
+    this.statusText = statusText;
+    this.body = body;
+    this.path = path;
   }
 }
 
@@ -56,22 +81,37 @@ export function createJiraClient(config: {
     return { accessToken: tokens.accessToken, cloudId: tokens.cloudId };
   }
 
-  async function get<T>(path: string, schema: ZodSchema<T>): Promise<T> {
+  async function request<T>(
+    method: "GET" | "POST",
+    path: string,
+    schema: ZodSchema<T>,
+    body?: unknown
+  ): Promise<T> {
     const { accessToken, cloudId } = await getAccessToken();
     const url = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/${path}`;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      };
+      if (body !== undefined) {
+        headers["Content-Type"] = "application/json";
+      }
+
       const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: "application/json",
-        },
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
       });
 
       if (response.status === 429) {
         if (attempt === MAX_RETRIES) {
-          throw new Error(
-            `Jira API rate limited after ${MAX_RETRIES + 1} attempts`
+          throw new JiraApiError(
+            429,
+            "Too Many Requests",
+            `Rate limited after ${MAX_RETRIES + 1} attempts`,
+            path
           );
         }
         const retryAfter = response.headers.get("Retry-After");
@@ -94,8 +134,17 @@ export function createJiraClient(config: {
       }
 
       if (!response.ok) {
-        throw new Error(
-          `Jira API error: ${response.status} ${response.statusText}`
+        let responseBody: string;
+        try {
+          responseBody = await response.text();
+        } catch {
+          responseBody = "(could not read response body)";
+        }
+        throw new JiraApiError(
+          response.status,
+          response.statusText,
+          responseBody,
+          path
         );
       }
 
@@ -106,7 +155,13 @@ export function createJiraClient(config: {
     throw new Error("Unexpected retry loop exit");
   }
 
-  return { get, getAccessToken };
+  return {
+    get: <T>(path: string, schema: ZodSchema<T>) =>
+      request("GET", path, schema),
+    post: <T>(path: string, body: unknown, schema: ZodSchema<T>) =>
+      request("POST", path, schema, body),
+    getAccessToken,
+  };
 }
 
 export type JiraClient = ReturnType<typeof createJiraClient>;

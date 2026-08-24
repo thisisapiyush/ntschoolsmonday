@@ -1,4 +1,4 @@
-import { Storage } from "@mondaycom/apps-sdk";
+import { SecureStorage } from "@mondaycom/apps-sdk";
 import type {
   TokenStore,
   StateStore,
@@ -20,40 +20,25 @@ function pruneExpired(states: StoredStates): StoredStates {
   return result;
 }
 
-function getMondayToken(): string {
-  const token = process.env["MONDAY_API_TOKEN"];
-  if (!token) {
-    throw new Error(
-      "MONDAY_API_TOKEN is required when TOKEN_STORE=monday"
-    );
-  }
-  return token;
-}
-
 export class MondayTokenStore implements TokenStore {
-  private storage: Storage;
+  private storage: InstanceType<typeof SecureStorage>;
 
   constructor() {
-    this.storage = new Storage(getMondayToken());
+    this.storage = new SecureStorage();
   }
 
   async load(): Promise<StoredTokens | null> {
-    const result = await this.storage.get<string>(TOKENS_KEY);
-    if (!result.success || result.value == null) return null;
+    const value = await this.storage.get<string>(TOKENS_KEY);
+    if (value == null) return null;
     try {
-      return JSON.parse(result.value) as StoredTokens;
+      return JSON.parse(value) as StoredTokens;
     } catch {
       return null;
     }
   }
 
   async save(tokens: StoredTokens): Promise<void> {
-    const result = await this.storage.set(TOKENS_KEY, JSON.stringify(tokens));
-    if (!result.success) {
-      throw new Error(
-        `Failed to save tokens to monday storage: ${result.error ?? "unknown error"}`
-      );
-    }
+    await this.storage.set(TOKENS_KEY, JSON.stringify(tokens));
   }
 
   async clear(): Promise<void> {
@@ -62,17 +47,17 @@ export class MondayTokenStore implements TokenStore {
 }
 
 export class MondayStateStore implements StateStore {
-  private storage: Storage;
+  private storage: InstanceType<typeof SecureStorage>;
 
   constructor() {
-    this.storage = new Storage(getMondayToken());
+    this.storage = new SecureStorage();
   }
 
   private async loadStates(): Promise<StoredStates> {
-    const result = await this.storage.get<string>(STATES_KEY);
-    if (!result.success || result.value == null) return {};
+    const value = await this.storage.get<string>(STATES_KEY);
+    if (value == null) return {};
     try {
-      return JSON.parse(result.value) as StoredStates;
+      return JSON.parse(value) as StoredStates;
     } catch {
       return {};
     }
