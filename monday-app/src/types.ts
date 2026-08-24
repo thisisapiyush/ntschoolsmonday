@@ -53,5 +53,5 @@ export const JiraIssueSchema = z.object({
 
 export const JiraSearchResponseSchema = z.object({
   issues: z.array(JiraIssueSchema),
-  total: z.number(),
+  nextPageToken: z.string().optional(),
 });

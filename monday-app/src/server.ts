@@ -104,26 +104,38 @@ async function main() {
     }
   });
 
-  app.get("/jira/issues", async (_req, res, next) => {
+  app.get("/jira/issues", async (req, res, next) => {
     try {
+      const body: Record<string, unknown> = {
+        jql: `project=${config.JIRA_PROJECT_KEY} ORDER BY created DESC`,
+        maxResults: 50,
+        fields: ["summary", "status"],
+      };
+
+      const { nextPageToken } = req.query;
+      if (typeof nextPageToken === "string") {
+        body["nextPageToken"] = nextPageToken;
+      }
+
       const data = await jira.post(
         "search/jql",
-        {
-          jql: `project=${config.JIRA_PROJECT_KEY} ORDER BY created DESC`,
-          maxResults: 50,
-          fields: ["summary", "status"],
-        },
+        body,
         JiraSearchResponseSchema
       );
 
-      res.json({
+      const response: Record<string, unknown> = {
         project: config.JIRA_PROJECT_KEY,
         issues: data.issues.map((issue) => ({
           key: issue.key,
           summary: issue.fields.summary,
           status: issue.fields.status.name,
         })),
-      });
+      };
+      if (data.nextPageToken) {
+        response["nextPageToken"] = data.nextPageToken;
+      }
+
+      res.json(response);
     } catch (err) {
       if (err instanceof NotAuthorisedError) {
         res
