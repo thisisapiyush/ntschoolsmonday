@@ -312,3 +312,29 @@ and conflict handling that bidirectional sync requires, because the NT
 
 directory is not listening for changes in the other direction.
 
+
+
+\## Jira search pagination
+
+
+
+Jira's /rest/api/3/search/jql endpoint uses token-based pagination and
+
+returns no result total, so the reconciliation job cannot ask how many issues
+
+exist up front. It must walk pages until nextPageToken is absent. This is
+
+the same pattern as monday's cursor-based items\_page — iterate until the
+
+cursor is empty, accumulate results.
+
+
+
+Offset pagination would also be unsafe here, since records can change
+
+between page fetches. A result that moved from page 2 to page 1 during
+
+iteration could be skipped or counted twice. Token-based pagination avoids
+
+this at the cost of not knowing the total until the walk is complete.
+

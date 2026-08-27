@@ -278,3 +278,59 @@ down so that the first person to encounter the failure has a path forward
 
 rather than a mystery.
 
+
+
+\## OAuth and credential isolation
+
+
+
+The OAuth grant is resource-level, scoped to the single Jira site authorised
+
+during the consent flow rather than account-wide. The integration cannot
+
+reach Atlassian instances outside the one it was authorised for, which limits
+
+blast radius if a token is compromised.
+
+
+
+Secrets are held in monday code's secret store, set via the CLI and read at
+
+runtime through the SDK's SecretsManager. They never appear in the
+
+repository, in environment variables on the deployed container, or in
+
+application logs.
+
+
+
+OAuth tokens and CSRF state live in monday code's SecureStorage, which is
+
+Vault-backed and authenticated via the platform's own GCP service identity.
+
+No manually managed credential is needed to access it — the platform
+
+provides the auth context at runtime.
+
+
+
+\## Compute residency
+
+
+
+monday.com account data residency is Australia, confirmed in account
+
+settings, but the monday code app runtime deployed to a US host. Data
+
+residency and compute residency are configured separately on the monday
+
+platform and can diverge on the same account.
+
+
+
+For a government client this is worth establishing explicitly before contract
+
+rather than assuming one implies the other. Where compute must also reside
+
+in-region, the alternative hosting model described above applies.
+
