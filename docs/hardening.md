@@ -248,9 +248,9 @@ version header, no published schema, no deprecation policy.
 
 
 
-Zod validation on the response means a shape change — a renamed field, a
+Zod validation on the response means a shape change (a renamed field, a
 
-changed type, a restructured payload — fails loudly at parse time rather
+changed type, a restructured payload) fails loudly at parse time rather
 
 than silently writing corrupt data into the board. This is the right
 
@@ -308,7 +308,7 @@ OAuth tokens and CSRF state live in monday code's SecureStorage, which is
 
 Vault-backed and authenticated via the platform's own GCP service identity.
 
-No manually managed credential is needed to access it — the platform
+No manually managed credential is needed to access it. The platform
 
 provides the auth context at runtime.
 

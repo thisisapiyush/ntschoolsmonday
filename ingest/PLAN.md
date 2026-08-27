@@ -1,4 +1,4 @@
-# Ingest script — implementation plan
+# Ingest script: implementation plan
 
 ## Overview
 
@@ -9,23 +9,23 @@ with `npx tsx ingest/src/index.ts [--dry-run]`.
 
 ## Module responsibilities
 
-### `fetchSchools.ts` — source API client
+### `fetchSchools.ts`: source API client
 
 Fetches `GET https://directory.ntschools.net/api/School/GetAllSchoolsForDirectory`.
 Validates the response with Zod. Returns the raw array.
 
 The Zod schema accepts `schoolType: string | null` and any string for
 `electorate` (including `"n/a"`). Validation covers shape, not business
-rules — filtering is a separate step.
+rules. Filtering is a separate step.
 
-### `transform.ts` — pure mapping and derivation
+### `transform.ts`: pure mapping and derivation
 
 1. **Filter**: Exclude when `isGovernment === false` OR `isPreSchool === true`
    OR `schoolType === "Preschool"`. The `isPreSchool` flag is unreliable
    (some preschools have `isPreSchool: false`), so both conditions are
    checked. Logs the count caught by each condition separately so the
    discrepancy is visible.
-2. **Derive remoteness** (proxy — the source has no remoteness field):
+2. **Derive remoteness** (a proxy, since the source has no remoteness field):
    - schoolType `"Remote School"` or `"Small School"` → `"Very Remote"`
    - schoolType `"Distance School"` → `"Remote"`
    - otherwise, decsRegion `"Darwin"` → `"Urban"`
@@ -42,7 +42,7 @@ rules — filtering is a separate step.
 
 No I/O. Exported types used by the orchestrator and tests.
 
-### `readiness.ts` — pure scoring function
+### `readiness.ts`: pure scoring function
 
 ```
 readinessScore(powerReady, commsReady, siteStatus) → number
@@ -53,12 +53,12 @@ readinessScore(powerReady, commsReady, siteStatus) → number
 | Power ready    | Yes          | 40     |
 | Comms ready    | Yes          | 40     |
 | Site status    | Complete     | 20     |
-| anything else  | —            | 0      |
+| anything else  | (any)        | 0      |
 
 On first ingest every score is 0. The function handles the populated case
 so it is ready for future update runs.
 
-### `schema.ts` — label index resolution
+### `schema.ts`: label index resolution
 
 At startup, queries the board schema via:
 
@@ -79,13 +79,13 @@ value. This ensures that reordering or adding labels in the monday UI
 doesn't silently corrupt writes.
 
 Columns resolved:
-- `color_mm63v03v` (Region) — expects: Alice Springs, Barkly, Big Rivers, Central, Darwin, East Arnhem, Top End
-- `color_mm63hg85` (Remoteness) — expects: Urban, Regional, Remote, Very Remote
-- `color_mm64cjvv` (Site status) — expects: Not started (at minimum)
-- `color_mm643hp0` (Power ready) — expects: Unknown (at minimum)
-- `color_mm64ty9d` (Comms ready) — expects: Unknown (at minimum)
+- `color_mm63v03v` (Region), expects: Alice Springs, Barkly, Big Rivers, Central, Darwin, East Arnhem, Top End
+- `color_mm63hg85` (Remoteness), expects: Urban, Regional, Remote, Very Remote
+- `color_mm64cjvv` (Site status), expects: Not started (at minimum)
+- `color_mm643hp0` (Power ready), expects: Unknown (at minimum)
+- `color_mm64ty9d` (Comms ready), expects: Unknown (at minimum)
 
-### `mondayClient.ts` — GraphQL client with backoff
+### `mondayClient.ts`: GraphQL client with backoff
 
 - Single `query(gql, variables)` function wrapping `fetch` to
   `https://api.monday.com/v2`.
@@ -96,7 +96,7 @@ Columns resolved:
 - Request-only-needed-fields discipline is the caller's job; this module
   handles transport and rate limiting.
 
-### `index.ts` — orchestration
+### `index.ts`: orchestration
 
 Two-pass approach:
 
@@ -119,27 +119,27 @@ CLI flag: `--dry-run` prints what would be created/updated without writing
 to monday.
 
 
-## Idempotency — two-pass detail
+## Idempotency: two-pass detail
 
-**Pass 1 — read existing items.** Paginate using `items_page(limit: 100,
+**Pass 1: read existing items.** Paginate using `items_page(limit: 100,
 cursor: $cursor)`, requesting only `id` and `column_values` for
 `text_mm649dbn` (School ID). Build a `Map<string, string>` from
 itSchoolCode → monday item ID.
 
-**Pass 2 — write.** For each transformed school:
+**Pass 2: write.** For each transformed school:
 
 - Look up its `itSchoolCode` in the map.
 - If found: call `change_multiple_column_values` with the item's ID.
   Remove the entry from the map so we can detect orphans.
 - If not found: call `create_item`.
 
-Items remaining in the map after pass 2 are orphans — schools that exist
-in monday but not in the source. They are logged by name in the summary
+Items remaining in the map after pass 2 are orphans (schools that exist
+in monday but not in the source). They are logged by name in the summary
 and never deleted. Deletion is a destructive action that should be an
 explicit operator decision.
 
 
-## Writes — column values JSON
+## Writes: column values JSON
 
 monday's `column_values` argument is a JSON string. For our columns:
 
@@ -184,8 +184,8 @@ non-fatal so that one bad record doesn't block the rest.
   monday's `change_multiple_column_values` writes all columns in one call,
   so each item is a single mutation. Batching multiple items into one
   request via `mutation { a: create_item(...) b: create_item(...) }` is
-  possible but complicates error handling per-item — deferred unless rate
-  limits are hit in practice.
+  possible but complicates per-item error handling, so it is deferred unless
+  rate limits are hit in practice.
 - **Backoff**: On `COMPLEXITY_BUDGET_EXHAUSTED`, wait
   `min(baseMs * 2^attempt + jitter, 60000)` then retry, up to 5 times.
 

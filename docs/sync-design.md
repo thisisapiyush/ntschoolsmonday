@@ -284,9 +284,9 @@ exists in the map, the item is updated in place; if not, a new item is
 
 created. Entries consumed from the map are removed as they are matched, so
 
-anything remaining at the end is an orphan — a school that exists on the
+anything remaining at the end is an orphan (a school that exists on the
 
-board but no longer appears in the source.
+board but no longer appears in the source).
 
 
 
@@ -304,9 +304,9 @@ information; an operator acts on it.
 
 This is a degenerate case of the bidirectional mapping the Jira sync will
 
-maintain. The identity principle is the same — stable external key, resolve
+maintain. The identity principle is the same (stable external key, resolve
 
-before write, never create a duplicate — but without the echo suppression
+before write, never create a duplicate), but without the echo suppression
 
 and conflict handling that bidirectional sync requires, because the NT
 
@@ -324,9 +324,9 @@ returns no result total, so the reconciliation job cannot ask how many issues
 
 exist up front. It must walk pages until nextPageToken is absent. This is
 
-the same pattern as monday's cursor-based items\_page — iterate until the
+the same pattern as monday's cursor-based items\_page, iterating until the
 
-cursor is empty, accumulate results.
+cursor is empty and accumulating results.
 
 
 

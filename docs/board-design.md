@@ -300,9 +300,9 @@ The source schema includes an `isPreSchool` boolean, but on the first run of
 
 would have loaded every preschool as a separate site, duplicating the
 
-co-located primary school already in the list — exactly the outcome the
+co-located primary school already in the list, which is exactly the outcome
 
-filter exists to prevent.
+the filter exists to prevent.
 
 
 
@@ -376,7 +376,7 @@ This is a reasonable proxy for the NT school system, where the correlation
 
 between school classification and remoteness is strong. It will misclassify
 
-a small number of schools — a specialist school in Darwin is not urban in the
+a small number of schools. A specialist school in Darwin is not urban in the
 
 ARIA sense, and a small school on the Stuart Highway is arguably regional
 
@@ -412,9 +412,9 @@ unmapped, and continues. This avoids aborting an entire run because one
 
 record has an unexpected value in a field the ingest does not control. For
 
-columns whose values the ingest itself produces — Remoteness, Site status,
+columns whose values the ingest itself produces (Remoteness, Site status,
 
-Power ready, Comms ready — a missing label is treated as a bug and aborts at
+Power ready, Comms ready), a missing label is treated as a bug and aborts at
 
 startup before any writes.
 

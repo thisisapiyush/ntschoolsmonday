@@ -1,4 +1,4 @@
-# monday-app Jira OAuth — implementation plan
+# monday-app Jira OAuth: implementation plan
 
 ## Overview
 
@@ -15,7 +15,7 @@ tsx for execution, vitest for tests, zod for external response validation.
 The existing `index.js` is deleted and replaced by `src/server.ts`.
 
 monday code runs `node index.js`, so the package.json `main` stays as
-`index.js` — a one-line loader that imports the compiled/tsx entrypoint.
+`index.js`, a one-line loader that imports the compiled/tsx entrypoint.
 During local dev, `tsx src/server.ts` runs directly.
 
 
@@ -47,7 +47,7 @@ Required at startup (fail loudly if missing):
 |----------|---------|
 | JIRA_CLIENT_ID | OAuth app client ID |
 | JIRA_CLIENT_SECRET | OAuth app secret |
-| JIRA_SITE_URL | For display only — API calls use cloudId |
+| JIRA_SITE_URL | For display only. API calls use cloudId. |
 | JIRA_PROJECT_KEY | Project to query in /jira/issues |
 | JIRA_REDIRECT_URI | Callback URL registered in the Atlassian app |
 
@@ -56,7 +56,7 @@ Optional:
 | Variable | Purpose |
 |----------|---------|
 | PORT | Listen port, defaults to 8080 |
-| TOKEN_STORE | `"file"` (default) or `"monday"` — selects storage backend |
+| TOKEN_STORE | `"file"` (default) or `"monday"`. Selects storage backend. |
 
 
 ## Token storage abstraction
@@ -79,11 +79,11 @@ interface StoredTokens {
 
 Two implementations:
 
-**FileTokenStore** — reads/writes `.tokens.json` in the app root.
+**FileTokenStore** reads and writes `.tokens.json` in the app root.
 Gitignored. Used for local development. Simple JSON file, no encryption
 (local dev only, same machine).
 
-**MondayTokenStore** — uses monday code's `Storage` API
+**MondayTokenStore** uses monday code's `Storage` API
 (`monday.storage.instance`). Used when `TOKEN_STORE=monday`. Tokens are
 stored as a single JSON blob under a known key. monday code's storage is
 scoped to the app instance and not accessible to other apps.
@@ -106,7 +106,7 @@ Neither implementation logs token values.
    - `response_type=code`
    - `prompt=consent`
 
-`offline_access` is required — without it Atlassian returns no refresh token.
+`offline_access` is required. Without it, Atlassian returns no refresh token.
 
 ### GET /oauth/callback
 
@@ -129,7 +129,7 @@ Access tokens are short-lived (typically 1 hour). The refresh logic:
 1. Before any Jira API call, check if the token expires within 5 minutes.
 2. If so, POST to `https://auth.atlassian.com/oauth/token` with
    `grant_type=refresh_token`.
-3. Atlassian rotates refresh tokens — the response contains a new refresh
+3. Atlassian rotates refresh tokens, and the response contains a new refresh
    token. **Persist the new refresh token immediately.** Failing to do this
    is the classic bug that breaks the integration hours after initial auth.
 4. Update `expiresAt` and `accessToken` in the store.
@@ -138,9 +138,9 @@ Refresh failure handling:
 - If the refresh returns 400/401 (revoked or expired grant), clear stored
   tokens and return a clear error that re-authorisation is needed via
   /oauth/start. This is an expected operational state, not a crash.
-- Do not retry a failed refresh — a revoked grant will not un-revoke.
+- Do not retry a failed refresh. A revoked grant will not un-revoke.
 - Do not attempt a second refresh if one just succeeded but the API still
-  returns 401 — treat the grant as revoked to avoid a retry loop.
+  returns 401. Treat the grant as revoked to avoid a retry loop.
 
 
 ## Jira API client
@@ -194,7 +194,7 @@ Otherwise: fetch issues from JIRA_PROJECT_KEY, return:
 | Refresh token revoked | Clear stored tokens, 401 with re-auth message |
 | Jira 429 | Backoff with Retry-After, up to 3 retries |
 | Jira 401 after fresh refresh | Grant revoked, clear tokens |
-| Token store I/O failure | Throw — this is infrastructure, not a user error |
+| Token store I/O failure | Throw. This is infrastructure, not a user error. |
 
 
 ## Tests (vitest, no network)
