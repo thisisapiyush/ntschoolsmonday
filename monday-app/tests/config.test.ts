@@ -25,6 +25,7 @@ const VALID = {
   JIRA_SITE_URL: "https://test.atlassian.net",
   JIRA_PROJECT_KEY: "TEST",
   JIRA_REDIRECT_URI: "http://localhost:8080/oauth/callback",
+  MONDAY_API_TOKEN: "test-monday-token",
 };
 
 describe("resolveConfig", () => {
@@ -41,12 +42,16 @@ describe("resolveConfig", () => {
 
   it("throws listing all missing keys", () => {
     expect(() => resolveConfig(new MockSource({}), false)).toThrow(
-      /Missing required config.*JIRA_CLIENT_ID.*JIRA_CLIENT_SECRET.*JIRA_SITE_URL.*JIRA_PROJECT_KEY.*JIRA_REDIRECT_URI/
+      /Missing required config.*JIRA_CLIENT_ID.*JIRA_CLIENT_SECRET.*JIRA_SITE_URL.*JIRA_PROJECT_KEY.*JIRA_REDIRECT_URI.*MONDAY_API_TOKEN/
     );
   });
 
   it("throws listing only the missing keys", () => {
-    const partial = { JIRA_CLIENT_ID: "id", JIRA_CLIENT_SECRET: "secret" };
+    const partial = {
+      JIRA_CLIENT_ID: "id",
+      JIRA_CLIENT_SECRET: "secret",
+      MONDAY_API_TOKEN: "tok",
+    };
     try {
       resolveConfig(new MockSource(partial), false);
     } catch (err) {
@@ -56,6 +61,7 @@ describe("resolveConfig", () => {
       expect(msg).toContain("JIRA_REDIRECT_URI");
       expect(msg).not.toContain("JIRA_CLIENT_ID");
       expect(msg).not.toContain("JIRA_CLIENT_SECRET");
+      expect(msg).not.toContain("MONDAY_API_TOKEN");
     }
   });
 

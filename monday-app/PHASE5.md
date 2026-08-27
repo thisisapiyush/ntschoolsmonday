@@ -79,30 +79,47 @@ well within the limit.
 
 ## Webhook verification
 
-Jira secures webhooks for OAuth 2.0 apps with bearer authentication. Each
-delivery includes an `Authorization: Bearer <token>` header where the
-token is a JWT signed with the app's client secret.
+### What the documentation says
 
-Verification on the inbound handler:
+The Atlassian docs state: "Webhooks for OAuth 2.0 apps are secured by
+bearer authentication. The token is present in the Authorization header
+and is signed with the app's client secret." They recommend JWT libraries
+from jwt.io for verification.
+
+The docs do not specify the signing algorithm, the JWT claims, or the
+expected issuer value. The Connect app docs (which use a parallel
+mechanism with a shared secret instead of a client secret) use HS256. A
+community Java example uses `Jwts.parser().setSigningKey(clientSecret
+.getBytes())`, which is HMAC verification. The HMAC/X-Hub-Signature
+approach that admin webhooks use does not apply to webhooks registered
+via POST /rest/api/3/webhook (confirmed by Atlassian staff in a
+community thread: the `secret` field in the registration payload is not
+honoured for this endpoint).
+
+### Implementation approach
+
+The convergent evidence points to HS256 with the client secret as the
+symmetric key. The implementation:
 
 1. Extract the bearer token from the `Authorization` header.
-2. Verify the JWT signature using `JIRA_CLIENT_SECRET` as the key. Use a
-   standard JWT library (jose) rather than hand-rolling verification.
-3. Reject requests where the token is missing, malformed, or fails
-   signature verification. Return 401 with no further processing.
-4. Check standard JWT claims: reject expired tokens (`exp`), validate
-   the issuer (`iss`) if Atlassian populates it.
+2. Decode the JWT header to read the `alg` claim.
+3. Accept only HS256, HS384, or HS512 (symmetric algorithms that use a
+   secret key). Reject any asymmetric algorithm (RS256, etc.) because
+   the signing key would be a public key the app does not have.
+4. Verify the signature using `JIRA_CLIENT_SECRET` as the HMAC key,
+   via the `jose` library.
+5. Validate the `exp` claim if present (reject expired tokens).
+6. Log the decoded header and payload claims at debug level on the first
+   successful verification, so the actual structure is confirmed against
+   a live delivery rather than inferred from documentation.
+
+If verification fails in practice (wrong algorithm, unexpected key
+format), the handler returns 401 and logs the failure with enough detail
+to diagnose. The app fails closed: no unverified request is processed.
 
 Verification is not optional. Without it, any party who discovers the
 webhook URL can inject fabricated events that create or modify Work
-Packages on the monday board. The client secret is already available in
-the app's config.
-
-The Atlassian documentation does not specify the signing algorithm
-explicitly, so the implementation should accept the algorithm declared in
-the JWT header and verify against the client secret. If verification
-fails in practice, the status endpoint and logs will surface the
-mismatch.
+Packages on the monday board.
 
 
 ## Inbound webhook processing
@@ -134,8 +151,11 @@ resolution, mapping lookup, and monday write.
 Jira delivers at least once and will redeliver on timeout. The
 `X-Atlassian-Webhook-Identifier` is the deduplication key. Before
 processing, the handler checks whether this identifier has already been
-processed by looking it up in a short-lived set (stored in SecureStorage
-with a TTL, or an in-memory LRU cache with a size bound).
+processed by looking it up in SecureStorage. Each entry stores a
+timestamp alongside the identifier. Entries older than one hour are
+pruned on each read. In-memory deduplication would reset on every deploy
+and would not be shared across monday code's auto-scaling containers, so
+SecureStorage is the mechanism and handler idempotency is the safety net.
 
 If the identifier is already present, the handler returns 200 and skips
 processing. If not, the identifier is recorded before processing begins.
@@ -272,15 +292,10 @@ hardcoded. The relevant columns:
    - Name: updated if the summary changed
    - Status: remapped from the current Jira status
    - Last synced: current date
-4. Site link is not re-resolved on update. If the original create was
-   unlinked, the link stays unlinked until an operator corrects it
-   manually or the school name is fixed in the Jira summary and a
-   future update triggers re-resolution.
-
-Re-resolution on update is deferred. It adds complexity (diff the old
-and new summary, re-resolve only if the school-name segment changed)
-for a case that should be rare and is better handled by fixing the
-summary in Jira.
+4. If the summary changed (detected via the changelog in the webhook
+   payload), re-parse the school name and re-resolve the Site link.
+   This handles the case where someone corrects a typo in the school
+   name. If the summary did not change, the Site link is left as is.
 
 
 ## Status mapping
@@ -342,11 +357,13 @@ or unmapped status, error for write failures and verification failures.
 | Module | Responsibility |
 |--------|---------------|
 | `webhookHandler.ts` | Express route for POST /webhook/jira. Verification, acknowledgement, async dispatch. |
-| `webhookAdmin.ts` | Express routes for /admin/webhook/*. Registration, status, refresh. |
+| `webhookAdmin.ts` | Express routes for /admin/webhook/*. Registration, status, refresh, backfill. |
 | `siteResolver.ts` | Sites board cache, name normalisation, lookup with refresh-on-miss. |
 | `statusMap.ts` | Jira to monday status mapping. Exported for Phase 6 reverse use. |
 | `issueSync.ts` | Core create-or-update logic. Mapping store, column value construction, monday writes. |
 | `mondayWriter.ts` | GraphQL mutations for creating and updating Work Package items. Column value JSON construction. |
+| `boardSchema.ts` | Discover column IDs by title from the board schema at startup. Build label maps for status columns. |
+| `mondayClient.ts` | monday GraphQL client with complexity-budget backoff. Same pattern as ingest. |
 
 
 ## New dependencies
@@ -368,39 +385,59 @@ monday GraphQL client reuses the existing `fetch`-based approach.
 | Webhook payload validation | Valid payload passes Zod. Missing fields rejected. |
 
 
-## Open questions
+## Backfill
 
-1. **Column ID discovery.** The ingest hardcodes column IDs as constants
-   and resolves labels from `settings_str` at runtime. Should the
-   monday-app do the same (hardcode Work Packages column IDs), or
-   discover them by title from the board schema? Hardcoding is simpler
-   and avoids ambiguity if two columns share a title. The trade-off is
-   that renaming or recreating a column silently breaks the integration.
-   The ingest chose hardcoding. Consistency argues for the same choice
-   here.
+Backfill is a separate operation from webhook registration. When the
+webhook is first registered, existing NTSR issues do not trigger create
+events. A separate admin endpoint handles backfill deliberately.
 
-2. **Deduplication store.** The `X-Atlassian-Webhook-Identifier` set
-   needs a TTL or size bound. SecureStorage is persistent but has no
-   native TTL. Options: store timestamps alongside identifiers and prune
-   on read, or use an in-memory LRU that resets on redeployment (safe
-   because the handlers are idempotent regardless). The in-memory
-   approach is simpler and sufficient given that the handlers are
-   create-or-update, not create-only.
+**POST /admin/backfill** accepts an optional `?dryRun=true` query
+parameter. In dry-run mode it fetches all NTSR issues via
+`POST /search/jql`, resolves sites, and returns a report of what it
+would create or update, without writing anything to monday. Without the
+flag it performs the writes. This follows the same spirit as the ingest's
+`--dry-run`.
 
-3. **Site re-resolution on update.** The current design skips
-   re-resolution when an issue is updated. If the school name segment
-   of the summary changes, the Site link stays stale until manual
-   correction. Is this acceptable, or should updates diff the summary
-   and re-resolve when the school name changes?
+The endpoint paginates through all issues using `nextPageToken` and
+reports a summary: issues found, Work Packages that would be created,
+items that would be updated, unresolved sites.
 
-4. **Existing issues.** When the webhook is first registered, issues
-   already in the NTSR project will not trigger create events. Should
-   the register endpoint also run a backfill pass using the existing
-   `POST /search/jql` endpoint to create Work Packages for all current
-   issues? Or is backfill a separate operation?
 
-5. **OAuth scope reauthorisation.** Adding `manage:jira-webhook` to the
-   consent URL means the existing grant must be reauthorised. This is a
-   one-time manual step. Should the app detect the missing scope and
-   surface it clearly, or is documenting it in the deployment notes
-   sufficient?
+## Missing scope detection
+
+Adding `manage:jira-webhook` to the OAuth consent URL means the existing
+grant must be reauthorised. The webhook admin endpoints detect this: when
+a Jira API call returns 403 with a scope-related error, the response
+includes a message naming the missing scope and pointing at
+`/oauth/start` to reauthorise. The app says so itself rather than
+leaving the operator to trace a raw 403.
+
+
+## Decisions (resolved)
+
+1. **Column IDs: discover by title.** The ingest hardcodes column IDs,
+   which was a mistake. A column renamed or recreated in the monday UI
+   breaks the sync silently. The monday-app resolves column IDs from
+   the board schema at startup by matching on column title. If any
+   expected column title is absent, startup fails with a message naming
+   the missing columns.
+
+2. **Deduplication: SecureStorage with TTL pruning.** In-memory resets
+   on every deploy, and monday code auto-scales across containers that
+   would not share a deduplication set. SecureStorage is persistent and
+   shared. Entries store a timestamp and are pruned when older than one
+   hour. Handler idempotency (create-or-update keyed on Jira issue key)
+   is the safety net, not the mechanism.
+
+3. **Site re-resolution on update.** When the webhook payload's
+   changelog indicates the summary changed, the handler re-parses the
+   school name and re-resolves the Site link. The common case (no
+   summary change) skips re-resolution entirely.
+
+4. **Backfill: separate operation.** Registration and backfill have
+   different failure modes. POST /admin/backfill runs deliberately with
+   a dry-run option, in the same spirit as the ingest's --dry-run.
+
+5. **Scope detection: surface in-app.** A missing
+   `manage:jira-webhook` scope produces a clear message naming the scope
+   and pointing at `/oauth/start`, not a raw 403 from Jira.

@@ -6,8 +6,12 @@ export interface AppConfig {
   JIRA_SITE_URL: string;
   JIRA_PROJECT_KEY: string;
   JIRA_REDIRECT_URI: string;
+  MONDAY_API_TOKEN: string;
   PORT: number;
   TOKEN_STORE: "file" | "monday";
+  SITES_BOARD_ID: string;
+  WORK_PACKAGES_BOARD_ID: string;
+  WEBHOOK_BASE_URL: string;
 }
 
 export interface ConfigSource {
@@ -48,6 +52,7 @@ const REQUIRED_KEYS = [
   "JIRA_SITE_URL",
   "JIRA_PROJECT_KEY",
   "JIRA_REDIRECT_URI",
+  "MONDAY_API_TOKEN",
 ] as const;
 
 export function isMondayCodeEnvironment(): boolean {
@@ -90,8 +95,12 @@ export function resolveConfig(
     JIRA_SITE_URL: values.get("JIRA_SITE_URL")!,
     JIRA_PROJECT_KEY: values.get("JIRA_PROJECT_KEY")!,
     JIRA_REDIRECT_URI: values.get("JIRA_REDIRECT_URI")!,
+    MONDAY_API_TOKEN: values.get("MONDAY_API_TOKEN")!,
     PORT: parseInt(source.get("PORT") ?? "8080", 10),
     TOKEN_STORE: tokenStore,
+    SITES_BOARD_ID: source.get("SITES_BOARD_ID") ?? "5030539700",
+    WORK_PACKAGES_BOARD_ID: source.get("WORK_PACKAGES_BOARD_ID") ?? "5030564582",
+    WEBHOOK_BASE_URL: source.get("WEBHOOK_BASE_URL") ?? "",
   };
 }
 

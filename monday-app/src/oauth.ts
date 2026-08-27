@@ -32,7 +32,7 @@ export function buildAuthorizeUrl(config: {
     audience: "api.atlassian.com",
     client_id: config.clientId,
     redirect_uri: config.redirectUri,
-    scope: "read:jira-work write:jira-work read:jira-user offline_access",
+    scope: "read:jira-work write:jira-work read:jira-user manage:jira-webhook offline_access",
     state,
     response_type: "code",
     prompt: "consent",

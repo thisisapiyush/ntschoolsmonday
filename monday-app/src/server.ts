@@ -12,6 +12,13 @@ import { JiraSearchResponseSchema } from "./types.js";
 import type { TokenStore, StateStore } from "./types.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createMondayClient } from "./mondayClient.js";
+import { loadWorkPackagesSchema } from "./boardSchema.js";
+import { createSiteResolver } from "./siteResolver.js";
+import { createMondayWriter } from "./mondayWriter.js";
+import { createIssueSync } from "./issueSync.js";
+import { createWebhookRouter } from "./webhookHandler.js";
+import { createWebhookAdminRouter } from "./webhookAdmin.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(__dirname, "..");
@@ -35,7 +42,33 @@ async function main() {
     tokenStore,
   });
 
+  const monday = createMondayClient(config.MONDAY_API_TOKEN);
+
+  console.log("Loading Work Packages board schema...");
+  const wpSchema = await loadWorkPackagesSchema(
+    monday,
+    config.WORK_PACKAGES_BOARD_ID
+  );
+  console.log("Board schema loaded. Columns resolved by title.");
+
+  const siteResolver = createSiteResolver(monday, config.SITES_BOARD_ID);
+  const writer = createMondayWriter(
+    monday,
+    wpSchema,
+    config.WORK_PACKAGES_BOARD_ID
+  );
+
+  const useSecureStorage = config.TOKEN_STORE === "monday";
+
+  const issueSync = createIssueSync({
+    siteResolver,
+    writer,
+    siteUrl: config.JIRA_SITE_URL,
+    useSecureStorage,
+  });
+
   const app = express();
+  app.use(express.json());
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -147,6 +180,29 @@ async function main() {
     }
   });
 
+  const webhookUrl = config.WEBHOOK_BASE_URL
+    ? `${config.WEBHOOK_BASE_URL.replace(/\/+$/, "")}/webhook/jira`
+    : "";
+
+  app.use(
+    createWebhookRouter({
+      clientSecret: config.JIRA_CLIENT_SECRET,
+      issueSync,
+    })
+  );
+
+  app.use(
+    createWebhookAdminRouter({
+      jira,
+      issueSync,
+      siteResolver,
+      webhookUrl,
+      projectKey: config.JIRA_PROJECT_KEY,
+      siteUrl: config.JIRA_SITE_URL,
+      useSecureStorage,
+    })
+  );
+
   app.use(
     (
       err: Error,
@@ -184,6 +240,8 @@ async function main() {
   app.listen(config.PORT, () => {
     console.log(`Listening on port ${config.PORT}`);
     console.log(`Token store: ${config.TOKEN_STORE}`);
+    console.log(`Sites board: ${config.SITES_BOARD_ID}`);
+    console.log(`Work Packages board: ${config.WORK_PACKAGES_BOARD_ID}`);
   });
 }
 
