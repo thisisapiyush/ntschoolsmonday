@@ -11,9 +11,11 @@ const BASE_DELAY_MS = 1000;
 const MAX_DELAY_MS = 30_000;
 
 export class NotAuthorisedError extends Error {
-  constructor() {
+  readonly reason: string;
+  constructor(reason: string = "no_token") {
     super("Not authorised. Visit /oauth/start to connect Jira.");
     this.name = "NotAuthorisedError";
+    this.reason = reason;
   }
 }
 
@@ -49,10 +51,14 @@ export function createJiraClient(config: {
   }> {
     const tokens = await config.tokenStore.load();
     if (!tokens) {
-      throw new NotAuthorisedError();
+      console.log("[JiraClient] getAccessToken: tokenStore.load() returned null");
+      throw new NotAuthorisedError("no_token");
     }
 
     if (isTokenExpiringSoon(tokens.expiresAt)) {
+      console.log(
+        `[JiraClient] Token expiring soon (expiresAt=${new Date(tokens.expiresAt).toISOString()}), refreshing`
+      );
       try {
         const refreshed = await refreshAccessToken({
           clientId: config.clientId,
@@ -71,8 +77,9 @@ export function createJiraClient(config: {
         return { accessToken: updated.accessToken, cloudId: tokens.cloudId };
       } catch (err) {
         if (err instanceof TokenRefreshError) {
+          console.error(`[JiraClient] Token refresh failed: ${err.message}`);
           await config.tokenStore.clear();
-          throw new NotAuthorisedError();
+          throw new NotAuthorisedError("refresh_failed");
         }
         throw err;
       }
@@ -81,12 +88,11 @@ export function createJiraClient(config: {
     return { accessToken: tokens.accessToken, cloudId: tokens.cloudId };
   }
 
-  async function request<T>(
+  async function executeRequest(
     method: "GET" | "POST",
     path: string,
-    schema: ZodSchema<T>,
     body?: unknown
-  ): Promise<T> {
+  ): Promise<Response> {
     const { accessToken, cloudId } = await getAccessToken();
     const url = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/${path}`;
 
@@ -129,8 +135,15 @@ export function createJiraClient(config: {
       }
 
       if (response.status === 401) {
+        let body = "";
+        try {
+          body = await response.text();
+        } catch {}
+        console.error(
+          `[JiraClient] Jira returned 401 on ${method} ${path}: ${body}`
+        );
         await config.tokenStore.clear();
-        throw new NotAuthorisedError();
+        throw new NotAuthorisedError("jira_401");
       }
 
       if (!response.ok) {
@@ -148,11 +161,21 @@ export function createJiraClient(config: {
         );
       }
 
-      const data: unknown = await response.json();
-      return schema.parse(data);
+      return response;
     }
 
     throw new Error("Unexpected retry loop exit");
+  }
+
+  async function request<T>(
+    method: "GET" | "POST",
+    path: string,
+    schema: ZodSchema<T>,
+    body?: unknown
+  ): Promise<T> {
+    const response = await executeRequest(method, path, body);
+    const data: unknown = await response.json();
+    return schema.parse(data);
   }
 
   return {
@@ -160,6 +183,8 @@ export function createJiraClient(config: {
       request("GET", path, schema),
     post: <T>(path: string, body: unknown, schema: ZodSchema<T>) =>
       request("POST", path, schema, body),
+    postNoContent: (path: string, body: unknown) =>
+      executeRequest("POST", path, body).then(() => undefined),
     getAccessToken,
   };
 }

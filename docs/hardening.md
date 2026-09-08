@@ -334,3 +334,77 @@ rather than assuming one implies the other. Where compute must also reside
 
 in-region, the alternative hosting model described above applies.
 
+
+
+\## monday code storage durability
+
+
+
+monday code's SecureStorage (the Vault-backed key-value store accessed
+
+through the SDK) does not survive a deployment. When a new app version is
+
+pushed via `mapps code:push`, the storage is cleared. An OAuth grant
+
+established before the push is gone after it. This was confirmed by
+
+observing a valid token present before a deploy and absent immediately
+
+after, with no other changes.
+
+
+
+The practical consequence is that every code push requires the operator to
+
+re-establish the Jira OAuth grant by visiting `/oauth/start` and completing
+
+the Atlassian consent flow. For a portfolio demo this is an acceptable
+
+manual step. For a production integration it is not: a deployment should not
+
+silently break connectivity to Jira.
+
+
+
+Options for production:
+
+\- Store tokens in an external persistence layer (a managed database, or
+
+&#x20; monday code's built-in Monday DB if its durability guarantees are stronger
+
+&#x20; than SecureStorage).
+
+\- Use the alternative hosting model (self-hosted, external render URL) where
+
+&#x20; the application controls its own storage lifecycle.
+
+\- Accept the operator step and codify it in a deployment runbook, with
+
+&#x20; monitoring that alerts when the token is absent after a deploy.
+
+
+
+\## Deployment URL stability
+
+
+
+The monday code deployment URL includes the app version number. When a new
+
+version is created and promoted, every external system holding a callback
+
+or webhook URL must be updated. In this integration, two external URLs
+
+break on a version bump: the Atlassian OAuth redirect URI and the
+
+registered Jira webhook endpoint.
+
+
+
+A stable custom domain (CNAME or reverse proxy) in front of the deployment
+
+would remove this class of problem. monday code does not offer this
+
+natively. The alternative hosting model avoids it entirely because the
+
+operator controls the URL.
+

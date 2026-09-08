@@ -24,6 +24,51 @@ describe("JiraClient", () => {
         NotAuthorisedError
       );
     });
+
+    it("includes reason on NotAuthorisedError", async () => {
+      const store = new FileTokenStore(tempPath());
+      const client = createJiraClient({
+        clientId: "test",
+        clientSecret: "secret",
+        tokenStore: store,
+      });
+
+      try {
+        await client.getAccessToken();
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(NotAuthorisedError);
+        expect((err as NotAuthorisedError).reason).toBe("no_token");
+      }
+    });
+
+    it("succeeds after tokens are stored (no stale state)", async () => {
+      const path = tempPath();
+      const store = new FileTokenStore(path);
+      const client = createJiraClient({
+        clientId: "test",
+        clientSecret: "secret",
+        tokenStore: store,
+      });
+
+      await expect(client.getAccessToken()).rejects.toThrow(
+        NotAuthorisedError
+      );
+
+      await store.save({
+        accessToken: "fresh-access",
+        refreshToken: "fresh-refresh",
+        expiresAt: Date.now() + 30 * 60 * 1000,
+        cloudId: "cloud-abc",
+        siteUrl: "https://fresh.atlassian.net",
+      });
+
+      const result = await client.getAccessToken();
+      expect(result.accessToken).toBe("fresh-access");
+      expect(result.cloudId).toBe("cloud-abc");
+
+      try { await unlink(path); } catch {}
+    });
   });
 
   describe("token refresh", () => {

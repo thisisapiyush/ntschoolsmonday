@@ -2,6 +2,7 @@ import { SecureStorage } from "@mondaycom/apps-sdk";
 import type { SiteResolver } from "./siteResolver.js";
 import type { MondayWriter } from "./mondayWriter.js";
 import { jiraStatusToMonday } from "./statusMap.js";
+import type { EchoStore } from "./echoSuppression.js";
 
 const MAPPING_KEY = "jira_issue_mapping";
 const DEDUP_KEY = "webhook_dedup";
@@ -54,6 +55,7 @@ export function createIssueSync(opts: {
   writer: MondayWriter;
   siteUrl: string;
   useSecureStorage: boolean;
+  echoStore?: EchoStore;
 }) {
   const { siteResolver, writer, siteUrl } = opts;
 
@@ -141,13 +143,40 @@ export function createIssueSync(opts: {
     const mapping = await loadMapping();
     const existingItemId = mapping[issue.key];
 
-    const mondayStatus = jiraStatusToMonday(issue.fields.status.name);
+    let mondayStatus = jiraStatusToMonday(issue.fields.status.name);
     if (!mondayStatus) {
       log(
         "WARN",
         ctx,
         `Unmapped Jira status "${issue.fields.status.name}", leaving monday Status unchanged`
       );
+    }
+
+    const jiraStatusName = issue.fields.status.name;
+
+    if (mondayStatus && opts.echoStore && existingItemId) {
+      try {
+        const suppressed = await opts.echoStore.check(
+          issue.key,
+          "status",
+          jiraStatusName
+        );
+        if (suppressed) {
+          log(
+            "INFO",
+            ctx,
+            `Echo suppressed: marker ${issue.key}:status:${jiraStatusName} found within window, skipping status write`
+          );
+          mondayStatus = undefined;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log(
+          "WARN",
+          ctx,
+          `Echo store check failed, proceeding: ${message}`
+        );
+      }
     }
 
     const jiraLink = buildJiraLink(issue.key);
@@ -178,6 +207,24 @@ export function createIssueSync(opts: {
           siteItemId,
         });
         log("INFO", ctx, "Work Package updated");
+
+        if (mondayStatus && opts.echoStore) {
+          try {
+            await opts.echoStore.record(issue.key, "status", jiraStatusName);
+            log(
+              "INFO",
+              ctx,
+              `Echo marker recorded: ${issue.key}:status:${jiraStatusName}`
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            log(
+              "WARN",
+              ctx,
+              `Failed to record echo marker: ${message}`
+            );
+          }
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log("ERROR", ctx, `Failed to update Work Package: ${message}`);
@@ -210,6 +257,24 @@ export function createIssueSync(opts: {
 
         mapping[issue.key] = itemId;
         await saveMapping(mapping);
+
+        if (mondayStatus && opts.echoStore) {
+          try {
+            await opts.echoStore.record(issue.key, "status", jiraStatusName);
+            log(
+              "INFO",
+              ctx,
+              `Echo marker recorded: ${issue.key}:status:${jiraStatusName}`
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            log(
+              "WARN",
+              ctx,
+              `Failed to record echo marker: ${message}`
+            );
+          }
+        }
 
         if (resolution.kind === "unresolved") {
           log("WARN", ctx, `Site unresolved: ${resolution.reason}`);

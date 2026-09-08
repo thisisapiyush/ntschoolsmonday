@@ -26,6 +26,7 @@ const VALID = {
   JIRA_PROJECT_KEY: "TEST",
   JIRA_REDIRECT_URI: "http://localhost:8080/oauth/callback",
   MONDAY_API_TOKEN: "test-monday-token",
+  MONDAY_SIGNING_SECRET: "test-signing-secret",
 };
 
 describe("resolveConfig", () => {
@@ -42,7 +43,7 @@ describe("resolveConfig", () => {
 
   it("throws listing all missing keys", () => {
     expect(() => resolveConfig(new MockSource({}), false)).toThrow(
-      /Missing required config.*JIRA_CLIENT_ID.*JIRA_CLIENT_SECRET.*JIRA_SITE_URL.*JIRA_PROJECT_KEY.*JIRA_REDIRECT_URI.*MONDAY_API_TOKEN/
+      /Missing required config.*JIRA_CLIENT_ID.*JIRA_CLIENT_SECRET.*JIRA_SITE_URL.*JIRA_PROJECT_KEY.*JIRA_REDIRECT_URI.*MONDAY_API_TOKEN.*MONDAY_SIGNING_SECRET/
     );
   });
 
@@ -51,6 +52,7 @@ describe("resolveConfig", () => {
       JIRA_CLIENT_ID: "id",
       JIRA_CLIENT_SECRET: "secret",
       MONDAY_API_TOKEN: "tok",
+      MONDAY_SIGNING_SECRET: "sig",
     };
     try {
       resolveConfig(new MockSource(partial), false);
@@ -62,6 +64,7 @@ describe("resolveConfig", () => {
       expect(msg).not.toContain("JIRA_CLIENT_ID");
       expect(msg).not.toContain("JIRA_CLIENT_SECRET");
       expect(msg).not.toContain("MONDAY_API_TOKEN");
+      expect(msg).not.toContain("MONDAY_SIGNING_SECRET");
     }
   });
 

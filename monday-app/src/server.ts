@@ -1,5 +1,5 @@
 import express from "express";
-import { loadConfig } from "./config.js";
+import { loadConfig, isMondayCodeEnvironment } from "./config.js";
 import { FileTokenStore, FileStateStore } from "./tokenStore.js";
 import { MondayTokenStore, MondayStateStore } from "./mondayStore.js";
 import { buildAuthorizeUrl, exchangeCode, fetchCloudId } from "./oauth.js";
@@ -19,6 +19,10 @@ import { createMondayWriter } from "./mondayWriter.js";
 import { createIssueSync } from "./issueSync.js";
 import { createWebhookRouter } from "./webhookHandler.js";
 import { createWebhookAdminRouter } from "./webhookAdmin.js";
+import { createEchoStore } from "./echoSuppression.js";
+import type { EchoStorage } from "./echoSuppression.js";
+import { createWorkflowActionRouter } from "./workflowAction.js";
+import { createMondayWebhookRouter } from "./mondayWebhook.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(__dirname, "..");
@@ -26,10 +30,18 @@ const appRoot = join(__dirname, "..");
 async function main() {
   const config = await loadConfig();
 
+  const isMondayCode = isMondayCodeEnvironment();
+  console.log(
+    `[startup] K_SERVICE=${process.env["K_SERVICE"] ?? "(unset)"}, ` +
+      `isMondayCode=${isMondayCode}, TOKEN_STORE=${config.TOKEN_STORE}`
+  );
+
   const tokenStore: TokenStore =
     config.TOKEN_STORE === "monday"
       ? new MondayTokenStore()
       : new FileTokenStore(join(appRoot, ".tokens.json"));
+
+  console.log(`[startup] Token store implementation: ${tokenStore.constructor.name}`);
 
   const stateStore: StateStore =
     config.TOKEN_STORE === "monday"
@@ -60,11 +72,37 @@ async function main() {
 
   const useSecureStorage = config.TOKEN_STORE === "monday";
 
+  let echoStorage: EchoStorage;
+  if (useSecureStorage) {
+    const { SecureStorage } = await import("@mondaycom/apps-sdk");
+    const ss = new SecureStorage();
+    echoStorage = {
+      get: (key) => ss.get(key),
+      set: async (key, value) => {
+        await ss.set(key, value);
+      },
+    };
+  } else {
+    const mem = new Map<string, string>();
+    echoStorage = {
+      get: async (key) => mem.get(key) ?? null,
+      set: async (key, value) => {
+        mem.set(key, value);
+      },
+    };
+  }
+
+  const echoStore = createEchoStore({
+    storage: echoStorage,
+    windowMs: config.ECHO_WINDOW_MS,
+  });
+
   const issueSync = createIssueSync({
     siteResolver,
     writer,
     siteUrl: config.JIRA_SITE_URL,
     useSecureStorage,
+    echoStore,
   });
 
   const app = express();
@@ -72,6 +110,36 @@ async function main() {
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  app.get("/debug/token-status", async (_req, res) => {
+    const diag: Record<string, unknown> = {
+      storeConfig: config.TOKEN_STORE,
+      storeImpl: tokenStore.constructor.name,
+      isMondayCode,
+      kService: process.env["K_SERVICE"] ?? null,
+    };
+
+    try {
+      const tokens = await tokenStore.load();
+      if (tokens) {
+        diag.hasToken = true;
+        diag.cloudId = tokens.cloudId;
+        diag.siteUrl = tokens.siteUrl;
+        diag.expiresAt = new Date(tokens.expiresAt).toISOString();
+        diag.isExpired = tokens.expiresAt < Date.now();
+        diag.expiresInMinutes = Math.round(
+          (tokens.expiresAt - Date.now()) / 60000
+        );
+      } else {
+        diag.hasToken = false;
+      }
+    } catch (err) {
+      diag.hasToken = false;
+      diag.loadError = err instanceof Error ? err.message : String(err);
+    }
+
+    res.json(diag);
   });
 
   app.get("/oauth/start", async (_req, res, next) => {
@@ -125,11 +193,20 @@ async function main() {
         siteUrl,
       });
 
+      const verified = await tokenStore.load();
+      const saveOk = verified != null && verified.cloudId === cloudId;
+      console.log(
+        `[oauth] Token save verified: ${saveOk}` +
+          (verified ? `, cloudId=${verified.cloudId}` : ", load returned null")
+      );
+
       res.type("html").send(
         `<!doctype html>
 <h1>Connected</h1>
 <p>Successfully connected to Jira site: <strong>${siteUrl}</strong></p>
 <p>Cloud ID: ${cloudId}</p>
+<p>Token persisted: <strong>${saveOk ? "yes" : "NO, see server logs"}</strong></p>
+<p>Store: ${tokenStore.constructor.name}</p>
 <p><a href="/jira/issues">View issues</a></p>`
       );
     } catch (err) {
@@ -171,9 +248,11 @@ async function main() {
       res.json(response);
     } catch (err) {
       if (err instanceof NotAuthorisedError) {
-        res
-          .status(401)
-          .json({ error: err.message, authorizeUrl: "/oauth/start" });
+        res.status(401).json({
+          error: err.message,
+          reason: err.reason,
+          authorizeUrl: "/oauth/start",
+        });
         return;
       }
       next(err);
@@ -204,6 +283,34 @@ async function main() {
   );
 
   app.use(
+    createWorkflowActionRouter({
+      signingSecret: config.MONDAY_SIGNING_SECRET,
+      mondayClient: monday,
+      jira,
+      echoStore,
+      schema: wpSchema,
+      boardId: config.WORK_PACKAGES_BOARD_ID,
+    })
+  );
+
+  if (config.MONDAY_WEBHOOK_TOKEN) {
+    app.use(
+      createMondayWebhookRouter({
+        webhookToken: config.MONDAY_WEBHOOK_TOKEN,
+        mondayClient: monday,
+        jira,
+        echoStore,
+        schema: wpSchema,
+      })
+    );
+    console.log("Monday webhook endpoint enabled");
+  } else {
+    console.log(
+      "Monday webhook endpoint disabled (MONDAY_WEBHOOK_TOKEN not set)"
+    );
+  }
+
+  app.use(
     (
       err: Error,
       req: express.Request,
@@ -218,6 +325,16 @@ async function main() {
         console.error(
           `Upstream Jira response (${err.status}): ${err.body}`
         );
+      }
+
+      if (err instanceof NotAuthorisedError) {
+        res.status(401).json({
+          error: err.message,
+          reason: err.reason,
+          authorizeUrl: "/oauth/start",
+          path: req.path,
+        });
+        return;
       }
 
       const response: Record<string, unknown> = {

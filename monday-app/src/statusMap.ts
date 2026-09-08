@@ -9,7 +9,9 @@ const JIRA_TO_MONDAY: ReadonlyMap<string, string> = new Map([
 // not "In Review". Information is lost in the round trip.
 const MONDAY_TO_JIRA: ReadonlyMap<string, string> = new Map([
   ["Backlog", "To Do"],
+  ["Scheduled", "To Do"],
   ["In progress", "In Progress"],
+  ["On hold", "To Do"],
   ["Done", "Done"],
 ]);
 

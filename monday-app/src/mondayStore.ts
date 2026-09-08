@@ -25,24 +25,57 @@ export class MondayTokenStore implements TokenStore {
 
   constructor() {
     this.storage = new SecureStorage();
+    console.log(
+      `[MondayTokenStore] Constructed with storage: ${this.storage.constructor.name}`
+    );
   }
 
   async load(): Promise<StoredTokens | null> {
     const value = await this.storage.get<string>(TOKENS_KEY);
-    if (value == null) return null;
+    if (value == null) {
+      console.log(`[MondayTokenStore] load: key "${TOKENS_KEY}" not found`);
+      return null;
+    }
     try {
-      return JSON.parse(value) as StoredTokens;
+      const tokens = JSON.parse(value) as StoredTokens;
+      console.log(
+        `[MondayTokenStore] load: found token for cloudId=${tokens.cloudId}, ` +
+          `expiresAt=${new Date(tokens.expiresAt).toISOString()}`
+      );
+      return tokens;
     } catch {
+      console.error(
+        `[MondayTokenStore] load: failed to parse stored value (length=${value.length})`
+      );
       return null;
     }
   }
 
   async save(tokens: StoredTokens): Promise<void> {
-    await this.storage.set(TOKENS_KEY, JSON.stringify(tokens));
+    const payload = JSON.stringify(tokens);
+    console.log(
+      `[MondayTokenStore] save: writing token for cloudId=${tokens.cloudId} ` +
+        `(payload ${payload.length} bytes)`
+    );
+    await this.storage.set(TOKENS_KEY, payload);
+    console.log(`[MondayTokenStore] save: set() returned`);
+
+    const readBack = await this.storage.get<string>(TOKENS_KEY);
+    if (readBack == null) {
+      console.error(
+        `[MondayTokenStore] VERIFY FAILED: immediate read-back returned null. ` +
+          `Token was NOT persisted.`
+      );
+    } else {
+      console.log(
+        `[MondayTokenStore] save: verified, read-back ${readBack.length} bytes`
+      );
+    }
   }
 
   async clear(): Promise<void> {
     await this.storage.delete(TOKENS_KEY);
+    console.log(`[MondayTokenStore] clear: deleted key "${TOKENS_KEY}"`);
   }
 }
 

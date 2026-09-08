@@ -32,11 +32,19 @@ describe("mondayStatusToJira", () => {
     expect(mondayStatusToJira("In progress")).toBe("In Progress");
   });
 
+  it("maps Scheduled to To Do", () => {
+    expect(mondayStatusToJira("Scheduled")).toBe("To Do");
+  });
+
+  it("maps On hold to To Do", () => {
+    expect(mondayStatusToJira("On hold")).toBe("To Do");
+  });
+
   it("maps Done to Done", () => {
     expect(mondayStatusToJira("Done")).toBe("Done");
   });
 
   it("returns undefined for unmapped status", () => {
-    expect(mondayStatusToJira("On hold")).toBeUndefined();
+    expect(mondayStatusToJira("Blocked")).toBeUndefined();
   });
 });
