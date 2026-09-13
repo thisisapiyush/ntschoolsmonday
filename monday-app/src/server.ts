@@ -145,18 +145,29 @@ async function main() {
     res.json(diag);
   });
 
-  app.get("/oauth/start", async (_req, res, next) => {
+  async function handleOAuthStart(
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) {
     try {
       const { url, state, expiresAt } = buildAuthorizeUrl({
         clientId: config.JIRA_CLIENT_ID,
         redirectUri: config.JIRA_REDIRECT_URI,
       });
       await stateStore.save(state, expiresAt);
-      res.redirect(url);
+      if (_req.method === "POST") {
+        res.json({ authorizeUrl: url });
+      } else {
+        res.redirect(url);
+      }
     } catch (err) {
       next(err);
     }
-  });
+  }
+
+  app.get("/oauth/start", handleOAuthStart);
+  app.post("/oauth/start", handleOAuthStart);
 
   app.get("/oauth/callback", async (req, res, next) => {
     try {
