@@ -59,6 +59,8 @@ export function createIssueSync(opts: {
 }) {
   const { siteResolver, writer, siteUrl } = opts;
 
+  const inFlight = new Map<string, Promise<void>>();
+
   let storage: InstanceType<typeof SecureStorage> | null = null;
 
   function getStorage(): InstanceType<typeof SecureStorage> {
@@ -124,6 +126,22 @@ export function createIssueSync(opts: {
   }
 
   async function processEvent(
+    payload: WebhookPayload,
+    correlationId: string
+  ): Promise<void> {
+    const key = payload.issue.key;
+    const prev = inFlight.get(key) ?? Promise.resolve();
+    const current = prev.then(() =>
+      processEventInner(payload, correlationId).catch(() => {})
+    );
+    inFlight.set(key, current);
+    await current;
+    if (inFlight.get(key) === current) {
+      inFlight.delete(key);
+    }
+  }
+
+  async function processEventInner(
     payload: WebhookPayload,
     correlationId: string
   ): Promise<void> {
@@ -238,6 +256,15 @@ export function createIssueSync(opts: {
         }
       }
     } else {
+      if (payload.webhookEvent !== "jira:issue_created") {
+        log(
+          "INFO",
+          ctx,
+          "No existing mapping and event is not issue_created, skipping"
+        );
+        return;
+      }
+
       log("INFO", ctx, "Creating new Work Package");
 
       const resolution = await siteResolver.resolve(issue.fields.summary);
