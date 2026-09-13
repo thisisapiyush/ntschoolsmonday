@@ -89,11 +89,19 @@ export function createWebhookAdminRouter(opts: {
 
   router.post("/admin/webhook/register", async (req, res, next) => {
     try {
-      const existing = await loadWebhookId();
-      if (existing !== null) {
+      const list = await opts.jira.get("webhook", WebhookListResponseSchema);
+      if (list.values.length > 0) {
+        const keep = list.values[0]!;
+        for (const wh of list.values.slice(1)) {
+          console.log(`[WEBHOOK-ADMIN] Deleting duplicate webhook ${wh.id}`);
+          await opts.jira.delete(`webhook/${wh.id}`);
+        }
+        await saveWebhookId(keep.id);
         res.json({
-          message: "Webhook already registered",
-          webhookId: existing,
+          message: list.values.length > 1
+            ? `Found ${list.values.length} webhooks, kept ${keep.id} and deleted ${list.values.length - 1} duplicates`
+            : "Webhook already registered",
+          webhookId: keep.id,
         });
         return;
       }
@@ -197,6 +205,50 @@ export function createWebhookAdminRouter(opts: {
       );
 
       res.json({ message: "Webhook expiry extended", webhookId });
+    } catch (err) {
+      if (isScopeError(err)) {
+        scopeErrorResponse(res);
+        return;
+      }
+      next(err);
+    }
+  });
+
+  router.post("/admin/webhook/reset", async (req, res, next) => {
+    try {
+      const list = await opts.jira.get("webhook", WebhookListResponseSchema);
+      const deleted: number[] = [];
+      for (const wh of list.values) {
+        await opts.jira.delete(`webhook/${wh.id}`);
+        deleted.push(wh.id);
+      }
+
+      const data = await opts.jira.post(
+        "webhook",
+        {
+          url: opts.webhookUrl,
+          webhooks: [
+            {
+              events: ["jira:issue_created", "jira:issue_updated"],
+              jqlFilter: `project = ${opts.projectKey}`,
+            },
+          ],
+        },
+        WebhookRegisterResponseSchema
+      );
+
+      const result = data.webhookRegistrationResult[0];
+      if (!result) {
+        res.status(500).json({ error: "No webhook ID returned from Jira" });
+        return;
+      }
+
+      await saveWebhookId(result.createdWebhookId);
+
+      res.json({
+        deleted,
+        registered: result.createdWebhookId,
+      });
     } catch (err) {
       if (isScopeError(err)) {
         scopeErrorResponse(res);

@@ -89,7 +89,7 @@ export function createJiraClient(config: {
   }
 
   async function executeRequest(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "DELETE",
     path: string,
     body?: unknown
   ): Promise<Response> {
@@ -168,7 +168,7 @@ export function createJiraClient(config: {
   }
 
   async function request<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "DELETE",
     path: string,
     schema: ZodSchema<T>,
     body?: unknown
@@ -185,6 +185,8 @@ export function createJiraClient(config: {
       request("POST", path, schema, body),
     postNoContent: (path: string, body: unknown) =>
       executeRequest("POST", path, body).then(() => undefined),
+    delete: (path: string) =>
+      executeRequest("DELETE", path).then(() => undefined),
     getAccessToken,
   };
 }
