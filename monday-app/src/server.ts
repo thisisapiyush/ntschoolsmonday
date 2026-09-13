@@ -100,9 +100,9 @@ async function main() {
   const issueSync = createIssueSync({
     siteResolver,
     writer,
-    mondayClient,
+    mondayClient: monday,
     boardId: config.WORK_PACKAGES_BOARD_ID,
-    jiraKeyColumnId: schema.jiraKeyColumnId,
+    jiraKeyColumnId: wpSchema.jiraKeyColumnId,
     siteUrl: config.JIRA_SITE_URL,
     useSecureStorage,
     echoStore,
