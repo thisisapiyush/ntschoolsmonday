@@ -64,6 +64,7 @@ export function createIssueSync(opts: {
   const { siteResolver, writer, siteUrl } = opts;
 
   const inFlight = new Map<string, Promise<void>>();
+  const localMapping = new Map<string, string>();
 
   let storage: InstanceType<typeof SecureStorage> | null = null;
 
@@ -75,17 +76,27 @@ export function createIssueSync(opts: {
   }
 
   async function loadMapping(): Promise<IssueMapping> {
-    if (!opts.useSecureStorage) return {};
-    const raw = await getStorage().get<string>(MAPPING_KEY);
-    if (raw == null) return {};
-    try {
-      return JSON.parse(raw) as IssueMapping;
-    } catch {
-      return {};
+    let persisted: IssueMapping = {};
+    if (opts.useSecureStorage) {
+      const raw = await getStorage().get<string>(MAPPING_KEY);
+      if (raw != null) {
+        try {
+          persisted = JSON.parse(raw) as IssueMapping;
+        } catch {
+          persisted = {};
+        }
+      }
     }
+    for (const [k, v] of localMapping) {
+      persisted[k] = v;
+    }
+    return persisted;
   }
 
   async function saveMapping(mapping: IssueMapping): Promise<void> {
+    for (const [k, v] of Object.entries(mapping)) {
+      localMapping.set(k, v);
+    }
     if (!opts.useSecureStorage) return;
     await getStorage().set(MAPPING_KEY, JSON.stringify(mapping));
   }
