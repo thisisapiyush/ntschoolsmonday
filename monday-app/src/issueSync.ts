@@ -1,4 +1,5 @@
 import { SecureStorage } from "@mondaycom/apps-sdk";
+import type { MondayClient } from "./mondayClient.js";
 import type { SiteResolver } from "./siteResolver.js";
 import type { MondayWriter } from "./mondayWriter.js";
 import { jiraStatusToMonday } from "./statusMap.js";
@@ -53,6 +54,9 @@ export interface WebhookPayload {
 export function createIssueSync(opts: {
   siteResolver: SiteResolver;
   writer: MondayWriter;
+  mondayClient: MondayClient;
+  boardId: string;
+  jiraKeyColumnId: string;
   siteUrl: string;
   useSecureStorage: boolean;
   echoStore?: EchoStore;
@@ -118,6 +122,28 @@ export function createIssueSync(opts: {
       payload.changelog?.items?.some((item) => item.field === "summary") ??
       false
     );
+  }
+
+  async function findItemByJiraKey(jiraKey: string): Promise<string | null> {
+    const data = await opts.mondayClient.query<{
+      items_page_by_column_values: { items: Array<{ id: string }> };
+    }>(
+      `query ($boardId: ID!, $columnId: String!, $value: String!) {
+        items_page_by_column_values(
+          board_id: $boardId
+          limit: 1
+          columns: [{ column_id: $columnId, column_values: [$value] }]
+        ) {
+          items { id }
+        }
+      }`,
+      {
+        boardId: opts.boardId,
+        columnId: opts.jiraKeyColumnId,
+        value: jiraKey,
+      }
+    );
+    return data.items_page_by_column_values.items[0]?.id ?? null;
   }
 
   function buildJiraLink(issueKey: string): string {
@@ -262,6 +288,23 @@ export function createIssueSync(opts: {
           ctx,
           "No existing mapping and event is not issue_created, skipping"
         );
+        return;
+      }
+
+      const existingOnBoard = await findItemByJiraKey(issue.key);
+      if (existingOnBoard) {
+        log(
+          "INFO",
+          ctx,
+          `Item ${existingOnBoard} already exists on board for ${issue.key}, repairing mapping`
+        );
+        mapping[issue.key] = existingOnBoard;
+        await saveMapping(mapping);
+        await writer.updateItem(existingOnBoard, {
+          mondayStatus,
+          jiraKey: issue.key,
+          jiraLink: buildJiraLink(issue.key),
+        });
         return;
       }
 
