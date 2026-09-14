@@ -169,9 +169,18 @@ async function main() {
   app.get("/oauth/start", handleOAuthStart);
   app.post("/oauth/start", handleOAuthStart);
 
-  app.get("/oauth/callback", async (req, res, next) => {
+  async function handleOAuthCallback(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) {
     try {
-      const { code, state } = req.query;
+      const code =
+        (req.query.code as string | undefined) ??
+        (req.body?.code as string | undefined);
+      const state =
+        (req.query.state as string | undefined) ??
+        (req.body?.state as string | undefined);
 
       if (typeof state !== "string" || typeof code !== "string") {
         res.status(400).json({ error: "Missing code or state parameter" });
@@ -214,19 +223,26 @@ async function main() {
           (verified ? `, cloudId=${verified.cloudId}` : ", load returned null")
       );
 
-      res.type("html").send(
-        `<!doctype html>
+      if (req.method === "POST") {
+        res.json({ connected: true, siteUrl, cloudId, tokenPersisted: saveOk });
+      } else {
+        res.type("html").send(
+          `<!doctype html>
 <h1>Connected</h1>
 <p>Successfully connected to Jira site: <strong>${siteUrl}</strong></p>
 <p>Cloud ID: ${cloudId}</p>
 <p>Token persisted: <strong>${saveOk ? "yes" : "NO, see server logs"}</strong></p>
 <p>Store: ${tokenStore.constructor.name}</p>
 <p><a href="/jira/issues">View issues</a></p>`
-      );
+        );
+      }
     } catch (err) {
       next(err);
     }
-  });
+  }
+
+  app.get("/oauth/callback", handleOAuthCallback);
+  app.post("/oauth/callback", handleOAuthCallback);
 
   app.get("/jira/issues", async (req, res, next) => {
     try {
