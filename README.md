@@ -1,5 +1,7 @@
 # NT Schools Rollout
 
+[Demo video](https://www.loom.com/share/f351ba2b181d49e08efcb738f2208031): a live walkthrough showing an issue created in Jira appearing as a Work Package in monday.com, a status change in monday transitioning the Jira issue, and echo suppression preventing the loop.
+
 A bidirectional sync between Jira Cloud and monday.com for a government schools infrastructure rollout, built against real NT Department of Education data. 162 school sites are ingested from the department's live directory API, Jira issues create linked monday work packages, monday status changes transition Jira issues, and echo suppression prevents the two systems from looping. The integration runs on monday code in the AU region.
 
 ## Why it exists
